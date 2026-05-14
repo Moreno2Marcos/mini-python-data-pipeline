@@ -1,0 +1,8 @@
+name: mini_pipeline_python
+channels:
+  - defaults
+dependencies:
+  - python=3.13
+  - requests
+  - pandas
+  - python-dotenv

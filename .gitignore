@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+logs/
+data/raw/
+data/processed/
+data/database/
+.ipynb_checkpoints/
+main_backup_bloco7.py

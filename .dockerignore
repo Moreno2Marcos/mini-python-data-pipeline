@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.pyc
+data/
+logs/
+.git/
+.gitignore
+environment.yml
+README.md
+main_backup_bloco7.py
