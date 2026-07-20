@@ -7,3 +7,4 @@ data/processed/
 data/database/
 .ipynb_checkpoints/
 main_backup_bloco7.py
+airflow/logs/
