@@ -2,6 +2,7 @@ import logging
 import sys
 
 import pandas as pd
+from datetime import datetime
 
 from src.config import API_TIMEOUT_SECONDS, API_URL, DB_PATH, LOGS_DIR, PROCESSED_DIR, PROJECT_ROOT, RAW_DIR
 from src.extract import extract_users
@@ -28,7 +29,8 @@ def main():
 
     validate_users(users)
 
-    transformed_users = transform_users(users)
+    processed_at = datetime.now().isoformat(timespec="seconds")
+    transformed_users = transform_users(users, processed_at)
 
     df_users = pd.DataFrame(transformed_users)
 

@@ -1,8 +1,7 @@
-from datetime import datetime
 import logging
 
 
-def transform_users(users):
+def transform_users(users, processed_at):
     logging.info("Iniciando transformação dos dados.")
 
     transformed_users = []
@@ -17,11 +16,13 @@ def transform_users(users):
             "latitude": user["address"]["geo"]["lat"],
             "longitude": user["address"]["geo"]["lng"],
             "company_name": user["company"]["name"],
-            "processed_at": datetime.now().isoformat(timespec="seconds"),
+            "processed_at": processed_at,
         }
 
         transformed_users.append(transformed_user)
 
-    logging.info(f"Transformação concluída. Registros transformados: {len(transformed_users)}")
+    logging.info(
+        f"Transformação concluída. Registros transformados: {len(transformed_users)}"
+    )
 
     return transformed_users
