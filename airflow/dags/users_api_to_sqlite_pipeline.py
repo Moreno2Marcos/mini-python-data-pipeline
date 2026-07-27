@@ -19,9 +19,11 @@ from src.database import (
     load_users_to_database,
 )
 from src.extract import extract_users
-from src.load import save_processed_data, save_raw_data
+from src.load import save_processed_data, save_raw_data, read_raw_data
 from src.transform import transform_users
 from src.validate import validate_users
+
+from src.contracts import RawMetadata, ValidationMetadata
 
 
 @dag(
@@ -43,200 +45,89 @@ def users_api_to_sqlite_pipeline():
     carrega a tabela users no SQLite e valida o resultado final.
     """
 
-    @task(task_id="extract_users")
-    def extract_users_task() -> list[dict]:
-        """
-        Consulta a API e retorna os usuários extraídos.
-        """
+    @task
+    def extract_and_save_raw_task() -> RawMetadata:
+        extracted_users = extract_users(API_URL, API_TIMEOUT_SECONDS)
 
-        logging.info("Iniciando task de extração dos usuários.")
-
-        users = extract_users(
-            API_URL,
-            API_TIMEOUT_SECONDS,
-        )
-
-        if not users:
-            raise ValueError("A API não retornou usuários.")
-
-        if not isinstance(users, list):
-            raise TypeError(
-                "A função extract_users deveria retornar uma lista."
-            )
-
-        if not all(isinstance(user, dict) for user in users):
-            raise TypeError(
-                "A extração deveria retornar uma lista de dicionários."
-            )
-
-        logging.info(
-            "Task de extração concluída. Registros extraídos: %s",
-            len(users),
-        )
-
-        return users
-
-    @task(task_id="save_raw_data")
-    def save_raw_data_task(users: list[dict]) -> str:
-        """
-        Salva os usuários extraídos em um arquivo JSON bruto.
-        """
-
-        logging.info(
-            "Iniciando persistência raw. Registros recebidos: %s",
-            len(users),
-        )
-
-        raw_file_path = save_raw_data(
-            data=users,
-            output_dir=RAW_DIR,
-        )
-
-        if raw_file_path is None:
+        if not extracted_users:
             raise ValueError(
-                "A função save_raw_data não retornou o caminho do arquivo."
+                "The API returned no users."
             )
 
-        raw_path = Path(raw_file_path)
+        raw_file_path = save_raw_data(extracted_users, RAW_DIR)
+        raw_path = Path(raw_file_path).resolve()
 
         if not raw_path.exists():
             raise FileNotFoundError(
-                f"O arquivo raw não foi encontrado: {raw_path}"
+                f"Raw file was not created: {raw_path}"
             )
 
-        if raw_path.stat().st_size == 0:
+        file_size_bytes = raw_path.stat().st_size
+
+        if file_size_bytes <= 0:
             raise ValueError(
-                f"O arquivo raw foi criado vazio: {raw_path}"
+                f"Raw file is empty: {raw_path}"
             )
 
-        logging.info(
-            "Persistência raw concluída. Arquivo: %s",
-            raw_path,
-        )
-
-        return str(raw_path)
-
-    @task(task_id="validate_users")
-    def validate_users_task(
-        users: list[dict],
-        raw_file_path: str,
-    ) -> dict:
-        """
-        Valida os usuários antes da transformação.
-        """
-
-        logging.info(
-            "Iniciando validação de %s registros.",
-            len(users),
-        )
-
-        logging.info(
-            "Arquivo raw associado à validação: %s",
-            raw_file_path,
-        )
-
-        is_valid = validate_users(users)
-
-        if not is_valid:
-            raise ValueError(
-                "A validação dos usuários retornou resultado inválido."
-            )
-
-        validation_result = {
-            "is_valid": True,
-            "record_count": len(users),
-            "raw_file_path": raw_file_path,
+        raw_metadata: RawMetadata = {
+            "raw_file_path": str(raw_path),
+            "record_count": len(extracted_users),
+            "file_size_bytes": file_size_bytes,
         }
 
-        logging.info(
-            "Validação concluída com sucesso. Registros válidos: %s",
-            len(users),
-        )
+        return raw_metadata
 
-        return validation_result
 
-    @task(task_id="transform_users")
+    @task
+    def validate_users_task(
+        raw_metadata: RawMetadata,
+    ) -> ValidationMetadata:
+        raw_file_path = raw_metadata["raw_file_path"]
+
+        extracted_users = read_raw_data(raw_file_path)
+
+        validate_users(extracted_users)
+
+        actual_record_count = len(extracted_users)
+        expected_record_count = raw_metadata["record_count"]
+
+        if actual_record_count != expected_record_count:
+            raise ValueError(
+                "Raw record count mismatch: "
+                f"metadata={expected_record_count}, "
+                f"json={actual_record_count}"
+            )
+
+        raw_validation_metadata: ValidationMetadata = {
+            "is_valid": True,
+            "raw_file_path": raw_file_path,
+            "record_count": actual_record_count,
+        }
+
+        return raw_validation_metadata
+
+
+    @task
     def transform_users_task(
-        users: list[dict],
-        validation_result: dict,
+        validation_result: ValidationMetadata,
     ) -> list[dict]:
-        """
-        Transforma os usuários válidos em uma lista de
-        dicionários com estrutura tabular.
-        """
-
-        if not validation_result.get("is_valid"):
+        if not validation_result["is_valid"]:
             raise ValueError(
-                "A transformação não pode continuar porque "
-                "a validação falhou."
+                "Raw data was not validated."
             )
 
-        expected_count = validation_result.get("record_count")
-
-        if expected_count != len(users):
-            raise ValueError(
-                "A quantidade recebida pela transformação difere "
-                "da quantidade validada."
-            )
+        raw_file_path = validation_result["raw_file_path"]
+        extracted_users = read_raw_data(raw_file_path)
 
         processed_at = datetime.now(timezone.utc).isoformat()
 
-        logging.info(
-            "Iniciando transformação de %s registros.",
-            len(users),
-        )
-
         transformed_records = transform_users(
-            users,
-            processed_at,
-        )
-
-        if transformed_records is None:
-            raise ValueError(
-                "A função transform_users não retornou dados."
-            )
-
-        if not isinstance(transformed_records, list):
-            raise TypeError(
-                "A função transform_users deveria retornar uma lista."
-            )
-
-        if not transformed_records:
-            raise ValueError(
-                "A transformação produziu uma lista vazia."
-            )
-
-        if not all(
-            isinstance(record, dict)
-            for record in transformed_records
-        ):
-            raise TypeError(
-                "A transformação deveria produzir "
-                "uma lista de dicionários."
-            )
-
-        if len(transformed_records) != expected_count:
-            raise ValueError(
-                "A quantidade de registros transformados difere "
-                "da quantidade validada."
-            )
-
-        logging.info(
-            "Transformação concluída. Registros transformados: %s",
-            len(transformed_records),
-        )
-
-        logging.info(
-            "Campos produzidos: %s",
-            list(transformed_records[0].keys()),
-        )
-
-        logging.info(
-            "Data de processamento utilizada: %s",
+            extracted_users,
             processed_at,
         )
 
         return transformed_records
+
 
     @task(task_id="save_processed_data")
     def save_processed_data_task(
@@ -624,20 +515,15 @@ def users_api_to_sqlite_pipeline():
 
         return validation_metadata
 
-    extracted_users = extract_users_task()
 
-    raw_file_path = save_raw_data_task(
-        extracted_users
-    )
+    raw_metadata = extract_and_save_raw_task()
 
     validation_result = validate_users_task(
-        extracted_users,
-        raw_file_path,
+        raw_metadata
     )
 
     transformed_records = transform_users_task(
-        extracted_users,
-        validation_result,
+        validation_result
     )
 
     processed_metadata = save_processed_data_task(
