@@ -21,7 +21,7 @@ from src.database import (
 from src.extract import extract_users
 from src.load import save_processed_data, save_raw_data, read_raw_data
 from src.transform import transform_users
-from src.validate import validate_users
+from src.validate import validate_raw_users_artifact
 
 from src.contracts import RawMetadata, ValidationMetadata
 
@@ -77,46 +77,28 @@ def users_api_to_sqlite_pipeline():
 
         return raw_metadata
 
-
     @task
-    def validate_users_task(
+    def validate_raw_users_task(
         raw_metadata: RawMetadata,
     ) -> ValidationMetadata:
-        raw_file_path = raw_metadata["raw_file_path"]
-
-        extracted_users = read_raw_data(raw_file_path)
-
-        validate_users(extracted_users)
-
-        actual_record_count = len(extracted_users)
-        expected_record_count = raw_metadata["record_count"]
-
-        if actual_record_count != expected_record_count:
-            raise ValueError(
-                "Raw record count mismatch: "
-                f"metadata={expected_record_count}, "
-                f"json={actual_record_count}"
-            )
-
-        raw_validation_metadata: ValidationMetadata = {
-            "is_valid": True,
-            "raw_file_path": raw_file_path,
-            "record_count": actual_record_count,
-        }
-
-        return raw_validation_metadata
+        """
+        Orquestra a validação do artefato JSON da camada raw.
+        """
+        return validate_raw_users_artifact(
+            raw_metadata
+        )
 
 
     @task
     def transform_users_task(
-        validation_result: ValidationMetadata,
+        validation_metadata: ValidationMetadata,
     ) -> list[dict]:
-        if not validation_result["is_valid"]:
+        if not validation_metadata["is_valid"]:
             raise ValueError(
                 "Raw data was not validated."
             )
 
-        raw_file_path = validation_result["raw_file_path"]
+        raw_file_path = validation_metadata["raw_file_path"]
         extracted_users = read_raw_data(raw_file_path)
 
         processed_at = datetime.now(timezone.utc).isoformat()
@@ -518,12 +500,12 @@ def users_api_to_sqlite_pipeline():
 
     raw_metadata = extract_and_save_raw_task()
 
-    validation_result = validate_users_task(
+    validation_metadata = validate_raw_users_task(
         raw_metadata
     )
 
     transformed_records = transform_users_task(
-        validation_result
+        validation_metadata
     )
 
     processed_metadata = save_processed_data_task(
