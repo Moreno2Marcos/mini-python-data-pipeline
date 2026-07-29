@@ -8,14 +8,17 @@ destino e execução idempotente em full refresh.
 
 ## Fluxo antes
 
+```mermaid
 flowchart LR
     A[ProcessedMetadata] --> B[Localizar CSV]
     B --> C[load_users_to_database_task]
     C --> D[Validações concentradas na DAG]
     D --> E[Carga full refresh no SQLite]
+```
 
 ## Fluxo depois
 
+```mermaid
 flowchart LR
     A[ProcessedMetadata] --> B[Leitura do CSV]
     B --> C[Reconstrução do DataFrame]
@@ -25,6 +28,7 @@ flowchart LR
     F --> G[Confirmação do banco e da tabela]
     G --> H[Carga full refresh]
     H --> I[LoadMetadata]
+```
 
 ## Conceitos de Engenharia de Dados aplicados
 
