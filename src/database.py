@@ -1,5 +1,6 @@
 import logging
 import sqlite3
+from pathlib import Path
 
 
 def create_users_table(db_path):
@@ -53,3 +54,30 @@ def count_users_in_database(db_path):
         result = cursor.fetchone()
 
     return result[0]
+
+
+def table_exists_in_database(
+    db_path: str | Path,
+    table_name: str,
+) -> bool:
+    """
+    Verifica se uma tabela existe no banco SQLite.
+    """
+    database_path = Path(db_path)
+
+    if not database_path.exists():
+        return False
+
+    with sqlite3.connect(database_path) as connection:
+        result = connection.execute(
+            """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table'
+              AND name = ?
+            LIMIT 1
+            """,
+            (table_name,),
+        ).fetchone()
+
+    return result is not None

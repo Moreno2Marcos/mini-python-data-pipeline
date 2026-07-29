@@ -17,6 +17,7 @@ from src.database import (
     count_users_in_database,
     create_users_table,
     load_users_to_database,
+    table_exists_in_database,
 )
 from src.extract import extract_users
 from src.load import (
@@ -26,10 +27,15 @@ from src.load import (
     save_raw_data,
 )
 from src.transform import transform_users
-from src.validate import validate_raw_users_artifact
+from src.validate import (
+    validate_processed_users_dataframe,
+    validate_raw_users_artifact,
+)
 from src.contracts import (
+    LoadMetadata,
     ProcessedMetadata,
     RawMetadata,
+    TableMetadata,
     ValidationMetadata,
 )
 
@@ -182,37 +188,42 @@ def users_api_to_sqlite_pipeline():
 
 
     @task(task_id="create_users_table")
-    def create_users_table_task() -> dict:
+    def create_users_table_task() -> TableMetadata:
         """
-        Cria a tabela users caso ela ainda não exista
-        e retorna metadados de disponibilidade da tabela.
+        Cria a tabela users e confirma que o destino
+        está disponível para receber a carga.
         """
+        db_path = Path(DB_PATH).resolve()
+        table_name = "users"
 
-        logging.info(
-            "Iniciando criação ou verificação da tabela users."
+        create_users_table(
+            db_path=db_path,
         )
 
-        logging.info(
-            "Caminho configurado para o banco SQLite: %s",
-            DB_PATH,
-        )
-
-        create_users_table(DB_PATH)
-
-        if not DB_PATH.exists():
+        if not db_path.exists():
             raise FileNotFoundError(
-                "O arquivo do banco SQLite não foi encontrado "
-                f"depois da criação da tabela: {DB_PATH}"
+                f"O banco SQLite não foi criado: {db_path}"
             )
 
-        table_metadata = {
-            "db_path": str(DB_PATH),
-            "table_name": "users",
+        if not table_exists_in_database(
+            db_path=db_path,
+            table_name=table_name,
+        ):
+            raise ValueError(
+                "A tabela users não foi encontrada "
+                "após sua criação."
+            )
+
+        table_metadata: TableMetadata = {
+            "db_path": str(db_path),
+            "table_name": table_name,
             "table_ready": True,
         }
 
         logging.info(
-            "Tabela users criada ou confirmada com sucesso."
+            "Destino SQLite confirmado. Banco: %s. Tabela: %s.",
+            db_path,
+            table_name,
         )
 
         return table_metadata
@@ -221,17 +232,16 @@ def users_api_to_sqlite_pipeline():
     @task(task_id="load_users_to_database")
     def load_users_to_database_task(
         processed_metadata: ProcessedMetadata,
-        table_metadata: dict,
-    ) -> dict:
+        table_metadata: TableMetadata,
+    ) -> LoadMetadata:
         """
-        Lê o CSV processado, valida sua estrutura
-        e executa a carga full refresh no SQLite.
+        Lê e valida o CSV processado e executa
+        a carga full refresh na tabela users.
         """
-
         if not table_metadata.get("table_ready"):
             raise ValueError(
-                "A carga não pode continuar porque a tabela "
-                "users não está disponível."
+                "A carga não pode continuar porque "
+                "a tabela users não está disponível."
             )
 
         processed_file_path_value = processed_metadata.get(
@@ -253,11 +263,6 @@ def users_api_to_sqlite_pipeline():
                 "O campo record_count deve ser um número inteiro."
             )
 
-        if expected_record_count <= 0:
-            raise ValueError(
-                "O campo record_count deve ser maior que zero."
-            )
-
         processed_file_path = Path(
             processed_file_path_value
         )
@@ -271,55 +276,23 @@ def users_api_to_sqlite_pipeline():
             processed_file_path
         )
 
-        actual_record_count = len(df_users)
-
-        if actual_record_count != expected_record_count:
-            raise ValueError(
-                "A quantidade de registros do CSV não corresponde "
-                "aos metadados processados. "
-                f"Metadados: {expected_record_count}. "
-                f"CSV: {actual_record_count}."
-            )
-
-        expected_columns = [
-            "user_id",
-            "name",
-            "email",
-            "city",
-            "zipcode",
-            "latitude",
-            "longitude",
-            "company_name",
-            "processed_at",
-        ]
-
-        missing_columns = [
-            column
-            for column in expected_columns
-            if column not in df_users.columns
-        ]
-
-        if missing_columns:
-            raise ValueError(
-                "O DataFrame não contém todas as colunas esperadas. "
-                f"Colunas ausentes: {missing_columns}"
-            )
-
-        df_users = df_users[expected_columns]
+        df_users = validate_processed_users_dataframe(
+            dataframe=df_users,
+            expected_record_count=expected_record_count,
+        )
 
         db_path_value = table_metadata.get("db_path")
+        table_name = table_metadata.get("table_name")
 
         if not db_path_value:
             raise ValueError(
-                "O metadado da tabela não contém "
+                "Os metadados da tabela não contêm "
                 "o caminho do banco."
             )
 
-        table_name = table_metadata.get("table_name")
-
         if not table_name:
             raise ValueError(
-                "O metadado da tabela não contém "
+                "Os metadados da tabela não contêm "
                 "o nome da tabela."
             )
 
@@ -330,14 +303,19 @@ def users_api_to_sqlite_pipeline():
                 f"O banco SQLite não foi encontrado: {db_path}"
             )
 
-        logging.info(
-            "Iniciando carga full refresh de %s registros no SQLite.",
-            actual_record_count,
-        )
+        if not table_exists_in_database(
+            db_path=db_path,
+            table_name=table_name,
+        ):
+            raise ValueError(
+                f"A tabela {table_name} não existe no SQLite."
+            )
+
+        records_sent_to_load = len(df_users)
 
         logging.info(
-            "A tabela users terá os registros existentes removidos "
-            "antes da nova inserção."
+            "Iniciando carga full refresh de %s registros.",
+            records_sent_to_load,
         )
 
         load_users_to_database(
@@ -345,25 +323,29 @@ def users_api_to_sqlite_pipeline():
             db_path=db_path,
         )
 
-        load_metadata = {
+        load_metadata: LoadMetadata = {
             "db_path": str(db_path),
             "table_name": table_name,
-            "processed_file_path": str(processed_file_path),
-            "records_sent_to_load": actual_record_count,
+            "processed_file_path": str(
+                processed_file_path
+            ),
+            "records_sent_to_load": records_sent_to_load,
             "load_strategy": "full_refresh",
         }
 
         logging.info(
-            "Carga enviada ao SQLite. Registros enviados: %s",
-            actual_record_count,
+            "Carga full refresh concluída. "
+            "Registros enviados: %s.",
+            records_sent_to_load,
         )
 
         return load_metadata
 
+
     @task(task_id="validate_database_load")
     def validate_database_load_task(
-        processed_metadata: dict,
-        load_metadata: dict,
+        processed_metadata: ProcessedMetadata,
+        load_metadata: LoadMetadata,
     ) -> dict:
         """
         Compara a quantidade processada, enviada à carga

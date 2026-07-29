@@ -5,6 +5,98 @@ from pathlib import Path
 from src.contracts import RawMetadata, ValidationMetadata
 from src.load import read_raw_data
 
+import pandas as pd
+
+
+EXPECTED_PROCESSED_COLUMNS = [
+    "user_id",
+    "name",
+    "email",
+    "city",
+    "zipcode",
+    "latitude",
+    "longitude",
+    "company_name",
+    "processed_at",
+]
+
+
+def validate_processed_users_dataframe(
+    dataframe: pd.DataFrame,
+    expected_record_count: int,
+) -> pd.DataFrame:
+    """
+    Valida contagem, esquema e integridade da chave
+    do DataFrame reconstruído a partir do CSV.
+    """
+    if not isinstance(dataframe, pd.DataFrame):
+        raise TypeError(
+            "Os dados processados devem ser um DataFrame."
+        )
+
+    if dataframe.empty:
+        raise ValueError(
+            "O DataFrame processado está vazio."
+        )
+
+    if not isinstance(expected_record_count, int):
+        raise TypeError(
+            "A contagem esperada deve ser um número inteiro."
+        )
+
+    if expected_record_count <= 0:
+        raise ValueError(
+            "A contagem esperada deve ser maior que zero."
+        )
+
+    actual_record_count = len(dataframe)
+
+    if actual_record_count != expected_record_count:
+        raise ValueError(
+            "A quantidade de registros do CSV não corresponde "
+            "aos metadados processados. "
+            f"Metadados: {expected_record_count}. "
+            f"CSV: {actual_record_count}."
+        )
+
+    missing_columns = [
+        column
+        for column in EXPECTED_PROCESSED_COLUMNS
+        if column not in dataframe.columns
+    ]
+
+    if missing_columns:
+        raise ValueError(
+            "O DataFrame não contém todas as colunas esperadas. "
+            f"Colunas ausentes: {missing_columns}"
+        )
+
+    if dataframe["user_id"].isna().any():
+        raise ValueError(
+            "A coluna user_id contém valores nulos."
+        )
+
+    if dataframe["user_id"].duplicated().any():
+        duplicated_user_ids = (
+            dataframe.loc[
+                dataframe["user_id"].duplicated(),
+                "user_id",
+            ]
+            .astype(str)
+            .tolist()
+        )
+
+        raise ValueError(
+            "A coluna user_id contém valores duplicados. "
+            f"IDs duplicados: {duplicated_user_ids}"
+        )
+
+    return dataframe.loc[
+        :,
+        EXPECTED_PROCESSED_COLUMNS,
+    ].copy()
+
+
 def validate_users(users):
     logging.info("Iniciando validação dos dados brutos.")
 
