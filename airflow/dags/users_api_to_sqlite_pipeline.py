@@ -19,11 +19,19 @@ from src.database import (
     load_users_to_database,
 )
 from src.extract import extract_users
-from src.load import save_processed_data, save_raw_data, read_raw_data
+from src.load import (
+    read_processed_data,
+    read_raw_data,
+    save_processed_data,
+    save_raw_data,
+)
 from src.transform import transform_users
 from src.validate import validate_raw_users_artifact
-
-from src.contracts import RawMetadata, ValidationMetadata
+from src.contracts import (
+    ProcessedMetadata,
+    RawMetadata,
+    ValidationMetadata,
+)
 
 
 @dag(
@@ -77,6 +85,7 @@ def users_api_to_sqlite_pipeline():
 
         return raw_metadata
 
+
     @task
     def validate_raw_users_task(
         raw_metadata: RawMetadata,
@@ -90,115 +99,87 @@ def users_api_to_sqlite_pipeline():
 
 
     @task
-    def transform_users_task(
+    def transform_and_save_processed_task(
         validation_metadata: ValidationMetadata,
-    ) -> list[dict]:
+    ) -> ProcessedMetadata:
+        """
+        Lê o JSON raw validado, transforma os registros,
+        salva o resultado em CSV e retorna seus metadados.
+        """
         if not validation_metadata["is_valid"]:
             raise ValueError(
                 "Raw data was not validated."
             )
 
         raw_file_path = validation_metadata["raw_file_path"]
-        extracted_users = read_raw_data(raw_file_path)
 
-        processed_at = datetime.now(timezone.utc).isoformat()
+        extracted_users = read_raw_data(
+            raw_file_path
+        )
+
+        expected_record_count = validation_metadata["record_count"]
+        actual_raw_record_count = len(extracted_users)
+
+        if actual_raw_record_count != expected_record_count:
+            raise ValueError(
+                "Validated raw record count mismatch: "
+                f"metadata={expected_record_count}, "
+                f"json={actual_raw_record_count}"
+            )
+
+        processed_at = datetime.now(
+            timezone.utc
+        ).isoformat()
 
         transformed_records = transform_users(
             extracted_users,
             processed_at,
         )
 
-        return transformed_records
-
-
-    @task(task_id="save_processed_data")
-    def save_processed_data_task(
-        transformed_records: list[dict],
-    ) -> dict:
-        """
-        Salva os registros transformados em CSV e retorna
-        metadados sobre o arquivo criado.
-        """
-
         if not transformed_records:
             raise ValueError(
-                "Nenhum registro transformado foi recebido para salvar."
+                "The transformation returned no records."
             )
 
-        if not isinstance(transformed_records, list):
-            raise TypeError(
-                "A persistência processada deveria receber uma lista."
-            )
-
-        if not all(
-            isinstance(record, dict)
-            for record in transformed_records
-        ):
-            raise TypeError(
-                "A persistência processada deveria receber "
-                "uma lista de dicionários."
-            )
-
-        logging.info(
-            "Iniciando persistência processada. "
-            "Registros recebidos: %s",
-            len(transformed_records),
+        transformed_record_count = len(
+            transformed_records
         )
+
+        if transformed_record_count != actual_raw_record_count:
+            raise ValueError(
+                "Transformation record count mismatch: "
+                f"raw={actual_raw_record_count}, "
+                f"processed={transformed_record_count}"
+            )
 
         processed_file_path = save_processed_data(
-            data=transformed_records,
-            output_dir=PROCESSED_DIR,
+            transformed_records,
+            PROCESSED_DIR,
         )
 
-        if processed_file_path is None:
-            raise ValueError(
-                "A função save_processed_data não retornou "
-                "o caminho do arquivo."
-            )
-
-        processed_path = Path(processed_file_path)
+        processed_path = Path(
+            processed_file_path
+        ).resolve()
 
         if not processed_path.exists():
             raise FileNotFoundError(
-                "O arquivo processado não foi encontrado: "
-                f"{processed_path}"
-            )
-
-        if processed_path.suffix.lower() != ".csv":
-            raise ValueError(
-                "O arquivo processado não possui extensão CSV: "
-                f"{processed_path}"
+                f"Processed file was not created: {processed_path}"
             )
 
         file_size_bytes = processed_path.stat().st_size
 
-        if file_size_bytes == 0:
+        if file_size_bytes <= 0:
             raise ValueError(
-                f"O arquivo CSV foi criado vazio: {processed_path}"
+                f"Processed file is empty: {processed_path}"
             )
 
-        processed_metadata = {
+        return {
             "processed_file_path": str(processed_path),
-            "record_count": len(transformed_records),
+            "source_raw_file_path": raw_file_path,
+            "record_count": transformed_record_count,
             "file_size_bytes": file_size_bytes,
         }
 
-        logging.info(
-            "Persistência processada concluída. Arquivo: %s",
-            processed_path,
-        )
-
-        logging.info(
-            "Quantidade de registros persistidos: %s",
-            len(transformed_records),
-        )
-
-        logging.info(
-            "Tamanho do arquivo em bytes: %s",
-            file_size_bytes,
-        )
-
-        return processed_metadata
 
     @task(task_id="create_users_table")
     def create_users_table_task() -> dict:
@@ -236,13 +217,14 @@ def users_api_to_sqlite_pipeline():
 
         return table_metadata
 
+
     @task(task_id="load_users_to_database")
     def load_users_to_database_task(
-        transformed_records: list[dict],
+        processed_metadata: ProcessedMetadata,
         table_metadata: dict,
     ) -> dict:
         """
-        Converte os registros transformados para DataFrame
+        Lê o CSV processado, valida sua estrutura
         e executa a carga full refresh no SQLite.
         """
 
@@ -252,49 +234,51 @@ def users_api_to_sqlite_pipeline():
                 "users não está disponível."
             )
 
-        if not transformed_records:
-            raise ValueError(
-                "Nenhum registro transformado foi recebido "
-                "para a carga no SQLite."
-            )
-
-        if not isinstance(transformed_records, list):
-            raise TypeError(
-                "A carga deveria receber uma lista."
-            )
-
-        if not all(
-            isinstance(record, dict)
-            for record in transformed_records
-        ):
-            raise TypeError(
-                "A carga deveria receber uma lista de dicionários."
-            )
-
-        db_path_value = table_metadata.get("db_path")
-
-        if not db_path_value:
-            raise ValueError(
-                "O metadado da tabela não contém o caminho do banco."
-            )
-
-        db_path = Path(db_path_value)
-
-        if not db_path.exists():
-            raise FileNotFoundError(
-                f"O banco SQLite não foi encontrado: {db_path}"
-            )
-
-        logging.info(
-            "Convertendo %s registros transformados para DataFrame.",
-            len(transformed_records),
+        processed_file_path_value = processed_metadata.get(
+            "processed_file_path"
         )
 
-        df_users = pd.DataFrame(transformed_records)
-
-        if df_users.empty:
+        if not processed_file_path_value:
             raise ValueError(
-                "O DataFrame criado para a carga está vazio."
+                "Os metadados processados não contêm "
+                "o caminho do arquivo CSV."
+            )
+
+        expected_record_count = processed_metadata.get(
+            "record_count"
+        )
+
+        if not isinstance(expected_record_count, int):
+            raise TypeError(
+                "O campo record_count deve ser um número inteiro."
+            )
+
+        if expected_record_count <= 0:
+            raise ValueError(
+                "O campo record_count deve ser maior que zero."
+            )
+
+        processed_file_path = Path(
+            processed_file_path_value
+        )
+
+        logging.info(
+            "Lendo arquivo processado para carga: %s",
+            processed_file_path,
+        )
+
+        df_users = read_processed_data(
+            processed_file_path
+        )
+
+        actual_record_count = len(df_users)
+
+        if actual_record_count != expected_record_count:
+            raise ValueError(
+                "A quantidade de registros do CSV não corresponde "
+                "aos metadados processados. "
+                f"Metadados: {expected_record_count}. "
+                f"CSV: {actual_record_count}."
             )
 
         expected_columns = [
@@ -323,8 +307,32 @@ def users_api_to_sqlite_pipeline():
 
         df_users = df_users[expected_columns]
 
+        db_path_value = table_metadata.get("db_path")
+
+        if not db_path_value:
+            raise ValueError(
+                "O metadado da tabela não contém "
+                "o caminho do banco."
+            )
+
+        table_name = table_metadata.get("table_name")
+
+        if not table_name:
+            raise ValueError(
+                "O metadado da tabela não contém "
+                "o nome da tabela."
+            )
+
+        db_path = Path(db_path_value)
+
+        if not db_path.exists():
+            raise FileNotFoundError(
+                f"O banco SQLite não foi encontrado: {db_path}"
+            )
+
         logging.info(
-            "Iniciando carga full refresh no SQLite."
+            "Iniciando carga full refresh de %s registros no SQLite.",
+            actual_record_count,
         )
 
         logging.info(
@@ -339,14 +347,15 @@ def users_api_to_sqlite_pipeline():
 
         load_metadata = {
             "db_path": str(db_path),
-            "table_name": table_metadata["table_name"],
-            "records_sent_to_load": len(df_users),
+            "table_name": table_name,
+            "processed_file_path": str(processed_file_path),
+            "records_sent_to_load": actual_record_count,
             "load_strategy": "full_refresh",
         }
 
         logging.info(
             "Carga enviada ao SQLite. Registros enviados: %s",
-            len(df_users),
+            actual_record_count,
         )
 
         return load_metadata
@@ -504,12 +513,8 @@ def users_api_to_sqlite_pipeline():
         raw_metadata
     )
 
-    transformed_records = transform_users_task(
+    processed_metadata = transform_and_save_processed_task(
         validation_metadata
-    )
-
-    processed_metadata = save_processed_data_task(
-        transformed_records
     )
 
     table_metadata = create_users_table_task()
@@ -517,7 +522,7 @@ def users_api_to_sqlite_pipeline():
     processed_metadata >> table_metadata
 
     load_metadata = load_users_to_database_task(
-        transformed_records,
+        processed_metadata,
         table_metadata,
     )
 

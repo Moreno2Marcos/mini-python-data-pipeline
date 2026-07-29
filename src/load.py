@@ -114,3 +114,34 @@ def read_raw_data(file_path: str | Path) -> list[dict]:
         )
 
     return data
+
+def read_processed_data(file_path: str | Path) -> pd.DataFrame:
+    """
+    Lê um arquivo CSV da camada processada
+    e retorna os registros como um DataFrame.
+    """
+    path = Path(file_path)
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Processed data file not found: {path}"
+        )
+
+    if not path.is_file():
+        raise ValueError(
+            f"Processed data path is not a file: {path}"
+        )
+
+    if path.suffix.lower() != ".csv":
+        raise ValueError(
+            f"Processed data file must be CSV: {path}"
+        )
+
+    dataframe = pd.read_csv(path)
+
+    if dataframe.empty:
+        raise ValueError(
+            f"Processed data file is empty: {path}"
+        )
+
+    return dataframe
