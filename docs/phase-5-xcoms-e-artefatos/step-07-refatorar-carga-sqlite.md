@@ -9,25 +9,66 @@ destino e execução idempotente em full refresh.
 ## Fluxo antes
 
 ```mermaid
-flowchart LR
-    A[ProcessedMetadata] --> B[Localizar CSV]
-    B --> C[load_users_to_database_task]
-    C --> D[Validações concentradas na DAG]
-    D --> E[Carga full refresh no SQLite]
+flowchart TD
+    A[ProcessedMetadata] --> B[Leitura do CSV]
+    B --> C[Reconstrução do DataFrame]
+    C --> D[Validação de contagem]
+    D --> E[Validação de esquema em função reutilizável]
+    E --> F[Validação de integridade de user_id]
+    F --> G[Confirmação do banco e da tabela]
+    G --> H[Carga full refresh]
+    H --> I[LoadMetadata]
+
+    classDef unchanged fill:#E8EEF7,stroke:#4A6280,color:#000;
+    classDef newChange fill:#E8F5E9,stroke:#2E7D32,color:#000;
+
+    class A,B,C,D,H unchanged;
+    class E,F,G,I newChange;
+
+    linkStyle default stroke:#4A6280,stroke-width:2px;
 ```
 
 ## Fluxo depois
 
 ```mermaid
-flowchart LR
+flowchart TD
     A[ProcessedMetadata] --> B[Leitura do CSV]
     B --> C[Reconstrução do DataFrame]
     C --> D[Validação de contagem]
-    D --> E[Validação de esquema]
-    E --> F[Validação de user_id]
-    F --> G[Confirmação do banco e da tabela]
+
+    N1["Substitui bloco antigo:<br/>Validação de esquema<br/>concentrada na DAG"]
+    N2["Substitui bloco antigo:<br/>Confirmação apenas<br/>do arquivo SQLite"]
+
+    subgraph R1[" "]
+        direction TB
+        E[Validação de esquema<br/>em função reutilizável]
+        F[Validação de integridade<br/>de user_id]
+        E --> F
+    end
+
+    subgraph R2[" "]
+        direction TB
+        G[Confirmação do banco<br/>e da tabela]
+    end
+
+    D --> E
+    F --> G
     G --> H[Carga full refresh]
     H --> I[LoadMetadata]
+
+    N1 -.-> E
+    N2 -.-> G
+
+    classDef unchanged fill:#E8EEF7,stroke:#4A6280,color:#000;
+    classDef newChange fill:#E8F5E9,stroke:#2E7D32,color:#000;
+    classDef noteOld fill:#FFF1F1,stroke:#C62828,color:#000,stroke-dasharray:5 5;
+
+    class A,B,C,D,H,I unchanged;
+    class E,F,G newChange;
+    class N1,N2 noteOld;
+
+    style R1 fill:#FFF8F8,stroke:#C62828,stroke-width:2px,stroke-dasharray:5 5
+    style R2 fill:#FFF8F8,stroke:#C62828,stroke-width:2px,stroke-dasharray:5 5
 ```
 
 ## Conceitos de Engenharia de Dados aplicados
