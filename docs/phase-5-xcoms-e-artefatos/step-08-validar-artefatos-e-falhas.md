@@ -6,26 +6,62 @@ Comprovar que o pipeline rejeita arquivos ausentes, vazios,
 corrompidos ou inconsistentes, apresentando mensagens diagnosticáveis
 e interrompendo o processamento antes que dados inválidos avancem.
 
-## Fluxo antes
+## Fluxo
 
 ```mermaid
-flowchart TD
-    A[Artefato recebido] --> B[Validações parciais]
-    B --> C[Processamento]
-    C --> D[Carga no SQLite]
-```
+flowchart LR
 
-## Fluxo depois
+    subgraph ANTES["ANTES — cobertura parcial"]
+        direction TB
 
-```mermaid
-flowchart TD
-    A[Artefato recebido] --> B[Validação física]
-    B --> C[Validação sintática]
-    C --> D[Validação estrutural]
-    D --> E[Reconciliação de contagem]
-    E --> F[Validação de chave]
-    F --> G[Carga no SQLite]
-    G --> H[Propagação de falha]
+        A1[Artefato recebido]
+        B1[Validações já existentes]
+        C1[Erros técnicos<br/>parcialmente contextualizados]
+        D1[Testes negativos<br/>incompletos]
+        E1[Carga no SQLite]
+        F1[Falha de escrita<br/>não simulada]
+
+        A1 --> B1
+        B1 --> C1
+        C1 --> D1
+        D1 --> E1
+        E1 --> F1
+    end
+
+    subgraph DEPOIS["DEPOIS — cobertura fortalecida"]
+        direction TB
+
+        A2[Artefato recebido]
+        B2[Validação física,<br/>sintática e estrutural]
+        C2[Erros técnicos<br/>contextualizados]
+        D2[Cenários inválidos<br/>automatizados]
+        E2[Carga no SQLite]
+        F2[Falha de escrita simulada<br/>e propagação comprovada]
+
+        A2 --> B2
+        B2 --> C2
+        C2 --> D2
+        D2 --> E2
+        E2 --> F2
+    end
+
+    A1 -. mesmo estágio .-> A2
+    B1 -. fortalecido por .-> B2
+    C1 -. fortalecido por .-> C2
+    D1 -. substituído por .-> D2
+    E1 -. mesmo estágio .-> E2
+    F1 -. substituído por .-> F2
+
+    classDef unchanged fill:#E8EEF7,stroke:#4A6280,color:#000;
+    classDef oldChange fill:#FFF1F1,stroke:#C62828,color:#000;
+    classDef newChange fill:#E8F5E9,stroke:#2E7D32,color:#000;
+
+    class A1,A2,E1,E2 unchanged;
+    class B1,C1,D1,F1 oldChange;
+    class B2,C2,D2,F2 newChange;
+
+    style ANTES fill:#FFF8F8,stroke:#C62828,stroke-width:2px,stroke-dasharray:5 5
+    style DEPOIS fill:#F6FFF7,stroke:#2E7D32,stroke-width:2px
 ```
 
 ## Conceitos de Engenharia de Dados aplicados
