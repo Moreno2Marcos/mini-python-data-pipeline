@@ -106,7 +106,12 @@ def read_raw_data(file_path: str | Path) -> list[dict]:
         )
 
     with path.open("r", encoding="utf-8") as file:
-        data = json.load(file)
+        try:
+            data = json.load(file)
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                f"Raw data file contains invalid JSON: {path}"
+            ) from error
 
     if not isinstance(data, list):
         raise ValueError(
@@ -114,6 +119,7 @@ def read_raw_data(file_path: str | Path) -> list[dict]:
         )
 
     return data
+
 
 def read_processed_data(file_path: str | Path) -> pd.DataFrame:
     """
@@ -137,7 +143,16 @@ def read_processed_data(file_path: str | Path) -> pd.DataFrame:
             f"Processed data file must be CSV: {path}"
         )
 
-    dataframe = pd.read_csv(path)
+    try:
+        dataframe = pd.read_csv(path)
+    except pd.errors.EmptyDataError as error:
+        raise ValueError(
+            f"Processed data file has no CSV content: {path}"
+        ) from error
+    except pd.errors.ParserError as error:
+        raise ValueError(
+            f"Processed data file is malformed: {path}"
+        ) from error
 
     if dataframe.empty:
         raise ValueError(

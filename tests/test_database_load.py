@@ -139,3 +139,66 @@ def test_full_refresh_load_is_idempotent(tmp_path):
 
     assert first_count == 2
     assert second_count == 2
+
+
+def test_validate_processed_dataframe_null_user_id():
+    dataframe = create_valid_dataframe()
+    dataframe.loc[1, "user_id"] = None
+
+    with pytest.raises(
+        ValueError,
+        match="valores nulos",
+    ):
+        validate_processed_users_dataframe(
+            dataframe=dataframe,
+            expected_record_count=2,
+        )
+
+
+def test_validate_processed_dataframe_invalid_expected_count():
+    dataframe = create_valid_dataframe()
+
+    with pytest.raises(
+        ValueError,
+        match="maior que zero",
+    ):
+        validate_processed_users_dataframe(
+            dataframe=dataframe,
+            expected_record_count=0,
+        )
+
+
+def test_load_users_to_database_propagates_write_failure(
+    tmp_path,
+    monkeypatch,
+):
+    db_path = tmp_path / "test_pipeline.db"
+    dataframe = create_valid_dataframe()
+
+    create_users_table(
+        db_path=db_path,
+    )
+
+    def raise_simulated_write_failure(
+        self,
+        *args,
+        **kwargs,
+    ):
+        raise RuntimeError(
+            "Simulated SQLite write failure."
+        )
+
+    monkeypatch.setattr(
+        pd.DataFrame,
+        "to_sql",
+        raise_simulated_write_failure,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Simulated SQLite write failure",
+    ):
+        load_users_to_database(
+            df=dataframe,
+            db_path=db_path,
+        )

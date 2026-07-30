@@ -79,3 +79,34 @@ def test_read_processed_data_empty_csv(tmp_path):
         read_processed_data(
             empty_file
         )
+
+
+def test_read_processed_data_zero_byte_file(
+    tmp_path,
+):
+    empty_file = tmp_path / "empty.csv"
+
+    empty_file.write_bytes(b"")
+
+    with pytest.raises(
+        ValueError,
+        match="has no CSV content",
+    ):
+        read_processed_data(
+            empty_file
+        )
+
+
+def test_read_processed_data_path_is_directory(
+    tmp_path,
+):
+    directory_path = tmp_path / "users.csv"
+    directory_path.mkdir()
+
+    with pytest.raises(
+        ValueError,
+        match="path is not a file",
+    ):
+        read_processed_data(
+            directory_path
+        )

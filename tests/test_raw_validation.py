@@ -143,3 +143,103 @@ def test_validate_raw_users_artifact_missing_metadata_field(
         validate_raw_users_artifact(
             raw_metadata
         )
+
+
+def test_validate_raw_users_artifact_wrong_extension(
+    tmp_path,
+):
+    raw_file_path = tmp_path / "users_raw_test.txt"
+
+    raw_file_path.write_text(
+        json.dumps([VALID_USER]),
+        encoding="utf-8",
+    )
+
+    raw_metadata = {
+        "raw_file_path": str(raw_file_path),
+        "record_count": 1,
+        "file_size_bytes": raw_file_path.stat().st_size,
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="must be JSON",
+    ):
+        validate_raw_users_artifact(
+            raw_metadata
+        )
+
+
+def test_validate_raw_users_artifact_invalid_json(
+    tmp_path,
+):
+    raw_file_path = tmp_path / "users_raw_invalid.json"
+
+    raw_file_path.write_text(
+        '{"id": 1',
+        encoding="utf-8",
+    )
+
+    raw_metadata = {
+        "raw_file_path": str(raw_file_path),
+        "record_count": 1,
+        "file_size_bytes": raw_file_path.stat().st_size,
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="contains invalid JSON",
+    ):
+        validate_raw_users_artifact(
+            raw_metadata
+        )
+
+
+def test_validate_raw_users_artifact_root_is_not_list(
+    tmp_path,
+):
+    raw_file_path = tmp_path / "users_raw_object.json"
+
+    raw_file_path.write_text(
+        json.dumps(VALID_USER),
+        encoding="utf-8",
+    )
+
+    raw_metadata = {
+        "raw_file_path": str(raw_file_path),
+        "record_count": 1,
+        "file_size_bytes": raw_file_path.stat().st_size,
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="must contain a JSON list",
+    ):
+        validate_raw_users_artifact(
+            raw_metadata
+        )
+
+
+def test_validate_raw_users_artifact_empty_list(
+    tmp_path,
+):
+    raw_file_path = tmp_path / "users_raw_empty.json"
+
+    raw_file_path.write_text(
+        json.dumps([]),
+        encoding="utf-8",
+    )
+
+    raw_metadata = {
+        "raw_file_path": str(raw_file_path),
+        "record_count": 1,
+        "file_size_bytes": raw_file_path.stat().st_size,
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="está vazia",
+    ):
+        validate_raw_users_artifact(
+            raw_metadata
+        )
