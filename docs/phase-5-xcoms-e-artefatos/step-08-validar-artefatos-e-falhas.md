@@ -6,91 +6,84 @@ Comprovar que o pipeline rejeita arquivos ausentes, vazios,
 corrompidos ou inconsistentes, apresentando mensagens diagnosticáveis
 e interrompendo o processamento antes que dados inválidos avancem.
 
-## Fluxo
+## Fluxo antes
 
 ```mermaid
-flowchart TB
+flowchart TD
 
-    subgraph HEAD[" "]
-        direction LR
-        H1["ANTES — cobertura parcial"]
-        ESP[" "]
-        H2["DEPOIS — cobertura fortalecida"]
+    subgraph ANTES["ANTES — cobertura parcial"]
+        direction TB
+
+        A[Artefato recebido]
+        B[Validações já existentes]
+        C[Erros técnicos<br/>parcialmente contextualizados]
+        D[Testes negativos<br/>incompletos]
+        E[Carga no SQLite]
+        F[Falha de escrita<br/>não simulada]
+
+        A --> B
+        B --> C
+        C --> D
+        D --> E
+        E --> F
     end
-
-    subgraph ROW1[" "]
-        direction LR
-        A1[Artefato recebido]
-        REL1["mesmo estágio"]
-        A2[Artefato recebido]
-        A1 -.-> REL1 -.-> A2
-    end
-
-    subgraph ROW2[" "]
-        direction LR
-        B1[Validações já existentes]
-        REL2["fortalecido por"]
-        B2[Validação física,<br/>sintática e estrutural]
-        B1 -.-> REL2 -.-> B2
-    end
-
-    subgraph ROW3[" "]
-        direction LR
-        C1[Erros técnicos<br/>parcialmente contextualizados]
-        REL3["fortalecido por"]
-        C2[Erros técnicos<br/>contextualizados]
-        C1 -.-> REL3 -.-> C2
-    end
-
-    subgraph ROW4[" "]
-        direction LR
-        D1[Testes negativos<br/>incompletos]
-        REL4["substituído por"]
-        D2[Cenários inválidos<br/>automatizados]
-        D1 -.-> REL4 -.-> D2
-    end
-
-    subgraph ROW5[" "]
-        direction LR
-        E1[Carga no SQLite]
-        REL5["mesmo estágio"]
-        E2[Carga no SQLite]
-        E1 -.-> REL5 -.-> E2
-    end
-
-    subgraph ROW6[" "]
-        direction LR
-        F1[Falha de escrita<br/>não simulada]
-        REL6["substituído por"]
-        F2[Falha de escrita simulada<br/>e propagação comprovada]
-        F1 -.-> REL6 -.-> F2
-    end
-
-    A1 --> B1 --> C1 --> D1 --> E1 --> F1
-    A2 --> B2 --> C2 --> D2 --> E2 --> F2
 
     classDef unchanged fill:#E8EEF7,stroke:#4A6280,color:#000;
     classDef oldChange fill:#FFF1F1,stroke:#C62828,color:#000;
+
+    class A,E unchanged;
+    class B,C,D,F oldChange;
+
+    style ANTES fill:#FFF8F8,stroke:#C62828,stroke-width:2px,stroke-dasharray:6 6
+```
+
+## Fluxo depois
+
+```mermaid
+flowchart TD
+
+    A[Artefato recebido]
+
+    N1["Substitui os blocos antigos:<br/>validações já existentes,<br/>erros parcialmente contextualizados<br/>e testes negativos incompletos"]
+
+    subgraph R1[" "]
+        direction TB
+
+        B[Validação física,<br/>sintática e estrutural]
+        C[Erros técnicos<br/>contextualizados]
+        D[Cenários inválidos<br/>automatizados]
+
+        B --> C
+        C --> D
+    end
+
+    E[Carga no SQLite]
+
+    N2["Substitui bloco antigo:<br/>falha de escrita<br/>não simulada"]
+
+    subgraph R2[" "]
+        direction TB
+
+        F[Falha de escrita simulada<br/>e propagação comprovada]
+    end
+
+    A --> B
+    D --> E
+    E --> F
+
+    N1 -.-> B
+    N2 -.-> F
+
+    classDef unchanged fill:#E8EEF7,stroke:#4A6280,color:#000;
     classDef newChange fill:#E8F5E9,stroke:#2E7D32,color:#000;
-    classDef relation fill:#F5F5F5,stroke:#757575,color:#000;
-    classDef oldTitle fill:#FFF8F8,stroke:#C62828,color:#000,stroke-dasharray:5 5;
-    classDef newTitle fill:#F6FFF7,stroke:#2E7D32,color:#000;
+    classDef noteOld fill:#FFF1F1,stroke:#C62828,color:#000,stroke-dasharray:6 6;
 
-    class A1,A2,E1,E2 unchanged;
-    class B1,C1,D1,F1 oldChange;
-    class B2,C2,D2,F2 newChange;
-    class REL1,REL2,REL3,REL4,REL5,REL6 relation;
-    class H1 oldTitle;
-    class H2 newTitle;
+    class A,E unchanged;
+    class B,C,D,F newChange;
+    class N1,N2 noteOld;
 
-    style HEAD fill:none,stroke:none
-    style ROW1 fill:none,stroke:none
-    style ROW2 fill:none,stroke:none
-    style ROW3 fill:none,stroke:none
-    style ROW4 fill:none,stroke:none
-    style ROW5 fill:none,stroke:none
-    style ROW6 fill:none,stroke:none
-    style ESP fill:none,stroke:none,color:transparent
+    style R1 fill:#FFF8F8,stroke:#C62828,stroke-width:2px,stroke-dasharray:6 6
+    style R2 fill:#FFF8F8,stroke:#C62828,stroke-width:2px,stroke-dasharray:6 6
 ```
 
 ## Conceitos de Engenharia de Dados aplicados
