@@ -1,11 +1,21 @@
+# Local editor settings
+.vscode/
 .env
+main_backup_bloco7.py
+
+# Runtime logs
+logs/
+*.log
+airflow/logs/
 __pycache__/
 *.pyc
-logs/
+.ipynb_checkpoints/
+.pytest_cache/
+
+# Generated pipeline artifacts
 data/raw/
 data/processed/
-data/database/
-.ipynb_checkpoints/
-main_backup_bloco7.py
-airflow/logs/
-.vscode/
+data/database/*.db
+data/database/*.db-journal
+
+docs/

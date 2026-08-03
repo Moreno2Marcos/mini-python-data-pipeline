@@ -32,9 +32,9 @@ def main():
     processed_at = datetime.now().isoformat(timespec="seconds")
     transformed_users = transform_users(users, processed_at)
 
-    df_users = pd.DataFrame(transformed_users)
+    save_processed_data(transformed_users, PROCESSED_DIR)
 
-    save_processed_data(df_users, PROCESSED_DIR)
+    df_users = pd.DataFrame(transformed_users)
 
     create_users_table(DB_PATH)
 
@@ -51,5 +51,8 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as error:
-        logging.exception(f"Pipeline finalizado com erro: {error}")
+        logging.error(
+            "Pipeline finalizado com erro: %s",
+            error,
+        )
         raise
